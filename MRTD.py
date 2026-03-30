@@ -99,17 +99,16 @@ def getFromDB():
 # Requirement 2 — Decode
 # ---------------------------------------------------------------------------
 
-def decodeMRZ(line1, line2):
+def decodeMRZ():
     """
-    Decode two MRZ strings into structured fields and validate check digits
+    Decode MRZ strings into structured fields and validate check digits
     using the Fletcher-8 algorithm.
+
+    Calls scanMRZ() internally to retrieve the two MRZ strings.
+    For unit testing, mock scanMRZ() to supply the desired input.
 
     Collects all errors and validation failures — does not stop at the first
     problem encountered.
-
-    Args:
-        line1 (str): 44-character MRZ line 1
-        line2 (str): 44-character MRZ line 2
 
     Returns:
         dict with keys:
@@ -125,6 +124,12 @@ def decodeMRZ(line1, line2):
             check_digits (dict)    — per-field validation results
             errors (list)          — present only if input errors were found
     """
+    scanned = scanMRZ()
+
+    if scanned is None:
+        return {"errors": [{"field": "scanMRZ", "error": "No data returned from scanner"}]}
+
+    line1, line2 = scanned
     errors = []
 
     # Validate input lengths

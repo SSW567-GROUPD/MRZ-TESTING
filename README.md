@@ -52,3 +52,4 @@ The following decisions were made to resolve ambiguities in the original require
 | 6 | Name encoding/decoding | `given_name` is space-separated in source data; encode by replacing spaces with `<` and joining with `<<` after last name; reverse on decode |
 | 7 | Document type | Not present in source data; hardcoded as `P<` in `encodeMRZ`; stripped from decoded output |
 | 8 | `getFromDB` record selection | Requirements do not specify how a specific record is selected. `getFromDB()` takes no parameters; record selection is the database layer's responsibility. For unit testing, `getFromDB()` is mocked to return the desired record. |
+| 9 | `decodeMRZ` data source | `decodeMRZ()` takes no parameter; calls `scanMRZ()` internally, mirroring the same pattern as `encodeMRZ`/`getFromDB`. For unit testing, `scanMRZ()` is mocked to return the desired input. |
