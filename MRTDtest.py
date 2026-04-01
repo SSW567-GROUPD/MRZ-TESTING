@@ -83,7 +83,7 @@ class TestDecodeMRZ(unittest.TestCase):
     """Test if trailing filler characters are removed from passport and personal numbers"""
     @patch("MRTD.scanMRZ")
     def test_decodeMRZ_trims_filler_from_variable_length_fields(self, mock_scan):
-        line1 = "P<USASMITH<<JOHN<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+        line1 = "P<USASMITH<<JOHN<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
         passport = "A12<<<<<<"
         passport_cd = str(MRTD._fletcher8_check_digit(passport))
         country = "USA"
