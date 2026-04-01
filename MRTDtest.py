@@ -56,6 +56,27 @@ class TestFletcher8CheckDigit(unittest.TestCase):
         result = MRTD._fletcher8_check_digit("1A")
         self.assertEqual(result, 3)
 
+    """Test that check digit is between 0-9"""
+    def test_fletcher8_check_digit_is_digit(self):
+        # Test various inputs to ensure result is always a digit 0-9
+        test_inputs = ["A", "1", "Z", "9", "ABC123DEF", "<<<", ""]
+        for inp in test_inputs:
+            result = MRTD._fletcher8_check_digit(inp)
+            self.assertIsInstance(result, int)
+            self.assertGreaterEqual(result, 0)
+            self.assertLessEqual(result, 9)
+
+    """Test that different inputs produce different check digits"""
+    def test_fletcher8_different_inputs_different_digits(self):
+        # Verify that changing a single character produces different check digit
+        cd1 = MRTD._fletcher8_check_digit("A")
+        cd2 = MRTD._fletcher8_check_digit("B")
+        self.assertNotEqual(cd1, cd2)
+        
+        cd3 = MRTD._fletcher8_check_digit("123456789")
+        cd4 = MRTD._fletcher8_check_digit("123456788")
+        self.assertNotEqual(cd3, cd4)
+
 """Unit tests for the decodeMRZ()"""
 class TestDecodeMRZ(unittest.TestCase):
 
@@ -154,11 +175,24 @@ class TestDecodeMRZ(unittest.TestCase):
         result = MRTD.decodeMRZ()
         self.assertFalse(result["check_digits"]["passport_number"]["valid"])
 
-    """Test decoding with no given name"""
+    """Test decoding with no given name (only last name, no <<)"""
     @patch("MRTD.scanMRZ")
     def test_decodeMRZ_no_given_name(self, mock_scan):
-        line1 = "P<USASMITH<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
-        line2 = "12345678901234567890123456789012345678901234"
+        # Line 1: P< + USA + SMITH + (34 fillers) = 44 chars total
+        line1 = "P<USASMITH" + ("<" * 34)
+        # Line 2: construct with proper check digits
+        passport = "123456789"
+        passport_cd = str(MRTD._fletcher8_check_digit(passport))
+        country = "USA"
+        birth = "900101"
+        birth_cd = str(MRTD._fletcher8_check_digit(birth))
+        sex = "M"
+        expiration = "300101"
+        expiration_cd = str(MRTD._fletcher8_check_digit(expiration))
+        personal = "ABC123456789012"
+        personal_cd = str(MRTD._fletcher8_check_digit(personal))
+        line2 = passport + passport_cd + country + birth + birth_cd + sex + expiration + expiration_cd + personal + personal_cd
+        
         mock_scan.return_value = (line1, line2)
         result = MRTD.decodeMRZ()
         self.assertEqual(result["given_name"], "")
@@ -431,6 +465,118 @@ class TestReportMismatches(unittest.TestCase):
         result = MRTD.reportMismatches(decoded)
 
         self.assertEqual(result, [])
+
+    """Test all four check digits with all mismatching"""
+    def test_report_mismatches_all_four_fields(self):
+        decoded = {
+            "check_digits": {
+                "passport_number": {"extracted": 0, "computed": 1, "valid": False},
+                "birth_date": {"extracted": 2, "computed": 3, "valid": False},
+                "expiration_date": {"extracted": 4, "computed": 5, "valid": False},
+                "personal_number": {"extracted": 6, "computed": 7, "valid": False},
+            }
+        }
+        result = MRTD.reportMismatches(decoded)
+        self.assertEqual(len(result), 4)
+
+
+"""Additional comprehensive tests for mutation detection"""
+class TestFletcherIntegration(unittest.TestCase):
+
+    """Test that Fletcher-8 produces consistent results for same input"""
+    def test_fletcher8_consistency(self):
+        field = "W620126G5"
+        result1 = MRTD._fletcher8_check_digit(field)
+        result2 = MRTD._fletcher8_check_digit(field)
+        self.assertEqual(result1, result2)
+
+    """Test that check digit range is 0-9"""
+    def test_fletcher8_produces_valid_digit(self):
+        fields = [
+            "",
+            "0", "9", "A", "Z",
+            "000", "999",
+            "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
+            "0123456789",
+            "<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+            "W620126G5",
+            "CIV", "591010", "970730", "AJ010215I"
+        ]
+        for field in fields:
+            result = MRTD._fletcher8_check_digit(field)
+            self.assertIsInstance(result, int, f"Field '{field}' produced non-int: {result}")
+            self.assertIn(result, range(10), f"Field '{field}' produced out-of-range digit: {result}")
+
+
+class TestDecodeMRZIntegration(unittest.TestCase):
+
+    """Test that invalid check digits are detected"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_catches_invalid_birth_date_cd(self, mock_scan):
+        line1 = "P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<"
+        # Copy valid line2 but change birth_date check digit from 0 to 1
+        line2 = "W620126G58CIV5910111F9707307AJ010215I<<<<<<9"
+        mock_scan.return_value = (line1, line2)
+        result = MRTD.decodeMRZ()
+        self.assertFalse(result["check_digits"]["birth_date"]["valid"])
+
+    """Test that invalid expiration check digit is detected"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_catches_invalid_expiration_cd(self, mock_scan):
+        line1 = "P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<"
+        # Copy valid line2 but change expiration_date check digit from 0 to 1
+        line2 = "W620126G58CIV5910107F9707311AJ010215I<<<<<<9"
+        mock_scan.return_value = (line1, line2)
+        result = MRTD.decodeMRZ()
+        self.assertFalse(result["check_digits"]["expiration_date"]["valid"])
+
+    """Test that invalid personal number check digit is detected"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_catches_invalid_personal_number_cd(self, mock_scan):
+        line1 = "P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<"
+        # Copy valid line2 but change personal_number check digit from 9 to 8
+        line2 = "W620126G58CIV5910107F9707307AJ010215I<<<<<<8"
+        mock_scan.return_value = (line1, line2)
+        result = MRTD.decodeMRZ()
+        self.assertFalse(result["check_digits"]["personal_number"]["valid"])
+
+
+class TestEncodeMRZIntegration(unittest.TestCase):
+
+    """Test that encoded MRZ has correct length"""
+    @patch("MRTD.getFromDB")
+    def test_encodeMRZ_produces_44_char_lines(self, mock_db):
+        mock_db.return_value = {
+            "issuing_country": "USA",
+            "last_name": "DOE",
+            "given_name": "JANE",
+            "passport_number": "123456789",
+            "country_code": "USA",
+            "birth_date": "900101",
+            "sex": "F",
+            "expiration_date": "300101",
+            "personal_number": "ABC123",
+        }
+        line1, line2 = MRTD.encodeMRZ()
+        self.assertEqual(len(line1), 44, "Line1 should be exactly 44 characters")
+        self.assertEqual(len(line2), 44, "Line2 should be exactly 44 characters")
+
+    """Test that Doc type is always P<"""
+    @patch("MRTD.getFromDB")
+    def test_encodeMRZ_always_starts_with_P_less(self, mock_db):
+        mock_db.return_value = {
+            "issuing_country": "DEU",
+            "last_name": "MUELLER",
+            "given_name": "HANS",
+            "passport_number": "987654321",
+            "country_code": "DEU",
+            "birth_date": "800115",
+            "sex": "M",
+            "expiration_date": "250101",
+            "personal_number": "XYZ987654321098",
+        }
+        line1, line2 = MRTD.encodeMRZ()
+        self.assertEqual(line1[:2], "P<", "Line1 should always start with 'P<'")
 
 
 if __name__ == "__main__":
