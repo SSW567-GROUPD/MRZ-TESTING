@@ -31,6 +31,31 @@ class TestFletcher8CheckDigit(unittest.TestCase):
         lower_result = MRTD._fletcher8_check_digit("abc123")
         self.assertEqual(upper_result, lower_result)
 
+    """Test with empty string"""
+    def test_fletcher8_empty_string(self):
+        result = MRTD._fletcher8_check_digit("")
+        self.assertEqual(result, 0)
+
+    """Test with single digit"""
+    def test_fletcher8_single_digit(self):
+        result = MRTD._fletcher8_check_digit("5")
+        self.assertEqual(result, 5)
+
+    """Test with single letter"""
+    def test_fletcher8_single_letter(self):
+        result = MRTD._fletcher8_check_digit("Z")
+        self.assertEqual(result, 5)
+
+    """Test with special characters"""
+    def test_fletcher8_special_chars(self):
+        result = MRTD._fletcher8_check_digit("!@#")
+        self.assertEqual(result, 0)
+
+    """Test with mixed digits and letters"""
+    def test_fletcher8_mixed_digits_letters(self):
+        result = MRTD._fletcher8_check_digit("1A")
+        self.assertEqual(result, 3)
+
 """Unit tests for the decodeMRZ()"""
 class TestDecodeMRZ(unittest.TestCase):
 
@@ -102,6 +127,41 @@ class TestDecodeMRZ(unittest.TestCase):
 
         self.assertEqual(result["passport_number"], "A12")
         self.assertEqual(result["personal_number"], "ABC")
+
+    """Test decoding with line1 too short"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_line1_too_short(self, mock_scan):
+        mock_scan.return_value = ("short", "P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<W620126G58CIV5910107F9707307AJ010215I<<<<<<9")
+        result = MRTD.decodeMRZ()
+        self.assertIn("errors", result)
+        self.assertEqual(result["errors"][0]["field"], "line1")
+
+    """Test decoding with line2 too long"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_line2_too_long(self, mock_scan):
+        long_line2 = "W620126G58CIV5910107F9707307AJ010215I<<<<<<9extra"
+        mock_scan.return_value = ("P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<", long_line2)
+        result = MRTD.decodeMRZ()
+        self.assertIn("errors", result)
+        self.assertEqual(result["errors"][0]["field"], "line2")
+
+    """Test decoding with invalid passport check digit"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_invalid_passport_cd(self, mock_scan):
+        line1 = "P<CIVLYNN<<NEVEAH<BRAM<<<<<<<<<<<<<<<<<<<<<<"
+        line2 = "W620126G59CIV5910107F9707307AJ010215I<<<<<<9"  # changed 8 to 9
+        mock_scan.return_value = (line1, line2)
+        result = MRTD.decodeMRZ()
+        self.assertFalse(result["check_digits"]["passport_number"]["valid"])
+
+    """Test decoding with no given name"""
+    @patch("MRTD.scanMRZ")
+    def test_decodeMRZ_no_given_name(self, mock_scan):
+        line1 = "P<USASMITH<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<"
+        line2 = "12345678901234567890123456789012345678901234"
+        mock_scan.return_value = (line1, line2)
+        result = MRTD.decodeMRZ()
+        self.assertEqual(result["given_name"], "")
 
 
 """Unit tests for encodeMRZ(), using mocks for the database stub."""
@@ -280,6 +340,42 @@ class TestEncodeMRZ(unittest.TestCase):
         self.assertEqual(line1[:2], "P<")
         self.assertEqual(line2[20], "<")
 
+    """Test encoding with empty last name"""
+    @patch("MRTD.getFromDB")
+    def test_encodeMRZ_empty_last_name(self, mock_db):
+        mock_db.return_value = {
+            "issuing_country": "USA",
+            "last_name": "",
+            "given_name": "JOHN",
+            "passport_number": "123456789",
+            "country_code": "USA",
+            "birth_date": "900101",
+            "sex": "M",
+            "expiration_date": "300101",
+            "personal_number": "ABC123",
+        }
+        line1, line2 = MRTD.encodeMRZ()
+        self.assertEqual(len(line1), 44)
+        self.assertEqual(len(line2), 44)
+        self.assertIn("<<JOHN", line1)
+
+    """Test encoding with no country code"""
+    @patch("MRTD.getFromDB")
+    def test_encodeMRZ_no_country_code(self, mock_db):
+        mock_db.return_value = {
+            "issuing_country": "USA",
+            "last_name": "DOE",
+            "given_name": "JOHN",
+            "passport_number": "123456789",
+            "country_code": "",
+            "birth_date": "900101",
+            "sex": "M",
+            "expiration_date": "300101",
+            "personal_number": "ABC123",
+        }
+        line1, line2 = MRTD.encodeMRZ()
+        self.assertEqual(line2[10:13], "<<<")
+
 """Unit tests for reporting mismatches"""
 class TestReportMismatches(unittest.TestCase):
 
@@ -338,5 +434,4 @@ class TestReportMismatches(unittest.TestCase):
 
 
 if __name__ == "__main__":
-    unittest.main()
-    
+    unittest.main()    
